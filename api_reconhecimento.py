@@ -11,9 +11,9 @@ app = Flask(__name__)
 
 # --- CONFIGURAÇÕES CENTRALIZADAS ---
 MODELO_RECONHECIMENTO = "Facenet"
-METRICA_DISTANCIA = "cosine"  # Mudança para métrica mais confiável
+METRICA_DISTANCIA = "cosine"  # mais confiável que euclidean_l2
 DETECTOR_ROSTO = "retinaface"
-LIMITE_CONFIANCA = 0.4  # Ajustável conforme testes
+LIMITE_CONFIANCA = 0.35       # ajuste para ser mais rigoroso
 BANCO_DE_DADOS = "imagens_conhecidas"
 # ---------------------------------------------------
 
@@ -21,8 +21,8 @@ BANCO_DE_DADOS = "imagens_conhecidas"
 print("="*40)
 print("INICIANDO SERVIDOR E CARREGANDO MODELOS DE IA...")
 try:
-    modelo_facenet = DeepFace.build_model(MODELO_RECONHECIMENTO)
-    print(f"Modelo de reconhecimento '{MODELO_RECONHECIMENTO}' carregado!")
+    _ = DeepFace.build_model(MODELO_RECONHECIMENTO)
+    print(f"Modelo de reconhecimento '{MODELO_RECONHECIMENTO}' carregado com sucesso!")
 except Exception as e:
     logging.error(f"Erro crítico ao carregar modelo de reconhecimento: {e}")
 print("Servidor pronto para receber requisições.")
@@ -36,19 +36,19 @@ def reconhecer_rosto_api():
         if 'imagem' not in dados_recebidos:
             return jsonify({'status': 'erro', 'mensagem': 'Nenhuma imagem enviada'}), 400
 
-        # Decodifica imagem enviada
         imagem_base64 = dados_recebidos['imagem']
         imagem_bytes = base64.b64decode(imagem_base64)
         imagem_np = np.frombuffer(imagem_bytes, np.uint8)
         frame = cv2.imdecode(imagem_np, cv2.IMREAD_COLOR)
 
-        # Detecta e alinha rostos
+        # Detecta rostos
         rostos_extraidos = DeepFace.extract_faces(
             img_path=frame,
             detector_backend=DETECTOR_ROSTO,
-            enforce_detection=True  # força pegar o rosto correto
+            enforce_detection=False
         )
 
+        # Nenhum rosto detectado
         if not rostos_extraidos or rostos_extraidos[0]['confidence'] == 0:
             return jsonify({
                 'status': 'sucesso',
@@ -56,14 +56,9 @@ def reconhecer_rosto_api():
                 'distancia': None
             })
 
-        # Pega primeiro rosto detectado
         rosto_alinhado = rostos_extraidos[0]['face']
 
-        # DEBUG: mostra o rosto detectado
-        cv2.imshow("Rosto detectado", rosto_alinhado)
-        cv2.waitKey(1)  # mantém a janela aberta por 1ms
-
-        # Compara com o banco de dados
+        # Compara com o banco
         resultados_df = DeepFace.find(
             img_path=rosto_alinhado,
             db_path=BANCO_DE_DADOS,
@@ -72,17 +67,18 @@ def reconhecer_rosto_api():
             enforce_detection=False
         )
 
-        # DEBUG: imprime DataFrame retornado
         print("\n--- DEBUG DO SERVIDOR ---")
         if not resultados_df or resultados_df[0].empty:
             print("DeepFace não encontrou correspondências no banco de dados.")
         else:
+            print("DataFrame retornado pelo DeepFace:")
             print(resultados_df[0].to_markdown(index=False))
         print("-------------------------\n")
 
-        # Define resposta
+        # Verifica resultados
         if resultados_df and not resultados_df[0].empty:
             distancia = resultados_df[0]['distance'][0]
+
             if distancia <= LIMITE_CONFIANCA:
                 caminho_identidade = resultados_df[0]['identity'][0]
                 nome_pessoa = os.path.basename(os.path.dirname(caminho_identidade))
@@ -92,12 +88,14 @@ def reconhecer_rosto_api():
                     'distancia': float(distancia)
                 }
             else:
+                # Rosto detectado mas não está no banco
                 resposta = {
                     'status': 'sucesso',
                     'identidade': 'Desconhecido',
                     'distancia': float(distancia)
                 }
         else:
+            # Nenhum rosto próximo no banco
             resposta = {
                 'status': 'sucesso',
                 'identidade': 'Desconhecido',
@@ -132,7 +130,7 @@ def adicionar_rosto():
         with open(caminho_foto, "wb") as f:
             f.write(imagem_bytes)
 
-        # Remove cache para recálculo de embeddings
+        # Remove cache para forçar recálculo das representações
         cache_file = os.path.join(BANCO_DE_DADOS, "representations_facenet.pkl")
         if os.path.exists(cache_file):
             os.remove(cache_file)
@@ -146,5 +144,5 @@ def adicionar_rosto():
 
 
 if __name__ == '__main__':
-    # threaded=True ajuda em múltiplas requisições
+    # 'threaded=True' ajuda a lidar com múltiplas requisições simultâneas
     app.run(host='0.0.0.0', port=5000, threaded=True)
