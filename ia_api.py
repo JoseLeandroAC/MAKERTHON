@@ -1,160 +1,101 @@
-from deepface import DeepFace
-import cv2
 import os
-import time
+import cv2
+import base64
+import numpy as np
+from deepface import DeepFace
+from flask import jsonify
 
-# Define a pasta que contém as imagens das pessoas conhecidas
-banco_de_dados = "imagens_conhecidas"
+# Configurações principais
+MODELO = "Facenet"
+DETECTOR = "retinaface"
+LIMITE_CONFIANCA = 0.5  # 50%
+DIRETORIO_IMAGENS = "imagens_conhecidas"
 
-print("\n--- MENU ---")
-print("[1] Executar Reconhecimento Facial")
-print("[2] Adicionar Novas Fotos")
-print("------------")
+# Cache do modelo
+_model = None
 
-modo = input("Escolha um modo (1 ou 2): ")
 
-if modo == '1':
-    # --- MODO DE RECONHECIMENTO FACIAL ---
-    
-    webcam = cv2.VideoCapture(0)
-    print("\nWebcam iniciada. Pressione 'q' para sair.")
-    
-    frame_count = 0
-    skip_frames = 10 
-    last_face_info = None
-    last_text_info = 'Nenhum rosto detectado'
-    cor = (0, 0, 255) # Cor inicial do quadrado
-    
-    while True:
-        ret, frame = webcam.read()
-        if not ret:
-            break
-            
-        frame_count += 1
-        
-        if frame_count % skip_frames == 0:
-            try:
-                rostos_detectados = DeepFace.extract_faces(
-                    img_path=frame, 
-                    detector_backend="retinaface",
-                    enforce_detection=False
-                )
-                
-                if rostos_detectados:
-                    print("\n> Rosto detectado com sucesso. Tentando fazer o reconhecimento...")
-                    last_face_info = rostos_detectados[0]['facial_area']
-                    
-                    x = last_face_info['x']
-                    y = last_face_info['y']
-                    w = last_face_info['w']
-                    h = last_face_info['h']
-                    
-                    rosto_recortado = frame[y:y+h, x:x+w]
-    
-                    try:
-                        resultados = DeepFace.find(
-                            img_path=rosto_recortado, 
-                            db_path=banco_de_dados, 
-                            model_name="Facenet", 
-                            distance_metric="euclidean_l2",
-                            enforce_detection=False,
-                            detector_backend="retinaface"
-                        )
-                        
-                        if resultados and not resultados[0].empty:
-                            distancia = resultados[0]['distance'][0]
-                            
-                            limite_distancia_confianca = 0.65
-    
-                            if distancia < limite_distancia_confianca:
-                                caminho_identidade = resultados[0]['identity'][0]
-                                nome_pessoa = caminho_identidade.split(os.path.sep)[-2]
-                                last_text_info = f"{nome_pessoa} (dist: {distancia:.2f})"
-                                cor = (0, 255, 0)
-                            else:
-                                last_text_info = f"Desconhecido (dist: {distancia:.2f})"
-                                cor = (0, 0, 255)
-                        else:
-                            last_text_info = 'Desconhecido'
-                            cor = (0, 0, 255)
-                    except Exception as e:
-                        last_text_info = 'Desconhecido'
-                        print(f"!!! ERRO NA COMPARAÇÃO: {e}")
-                else:
-                    last_face_info = None
-                    last_text_info = 'Nenhum rosto detectado'
-                    cor = (0, 0, 255)
-            except Exception as e:
-                last_face_info = None
-                last_text_info = 'Nenhum rosto detectado'
-                cor = (0, 0, 255)
-                print(f"!!! ERRO NA DETECÇÃO: {e}")
-        
-        if last_face_info:
-            x = last_face_info['x']
-            y = last_face_info['y']
-            w = last_face_info['w']
-            h = last_face_info['h']
-            
-            cv2.rectangle(frame, (x, y), (x + w, y + h), cor, 2)
-            cv2.putText(frame, last_text_info, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, cor, 2)
-        else:
-            cv2.putText(frame, last_text_info, (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, cor, 2)
-    
-        cv2.imshow('Reconhecimento Facial', frame)
-    
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-    
-    webcam.release()
-    cv2.destroyAllWindows()
+def carregar_modelo():
+    global _model
+    if _model is None:
+        print("[IA] Carregando modelo...")
+        _model = DeepFace.build_model(MODELO)
+    return _model
 
-elif modo == '2':
-    # --- MODO DE ADICIONAR FOTOS ---
-    
-    nome_da_pessoa = input("\nDigite o nome da pessoa: ")
-    nome_da_pessoa = nome_da_pessoa.replace(" ", "_") # Remove espaços para evitar erros
-    
-    caminho_pasta = os.path.join(banco_de_dados, nome_da_pessoa)
-    os.makedirs(caminho_pasta, exist_ok=True)
-    
-    webcam = cv2.VideoCapture(0)
-    print("Câmera aberta. Pressione 's' para salvar a foto ou 'q' para sair.")
-    
-    while True:
-        ret, frame = webcam.read()
-        if not ret:
-            break
-        
-        cv2.imshow("Adicionar Fotos", frame)
-        
-        key = cv2.waitKey(1) & 0xFF
-        
-        if key == ord('s'):
-            timestamp = int(time.time())
-            caminho_foto = os.path.join(caminho_pasta, f"{nome_da_pessoa}_{timestamp}.jpg")
-            cv2.imwrite(caminho_foto, frame)
-            print(f"Foto salva em: {caminho_foto}")
-            print("Pressione 's' novamente para tirar outra foto ou 'q' para sair.")
-            
-        elif key == ord('q'):
-            break
-    
-    webcam.release()
-    cv2.destroyAllWindows()
-    
-    # --- NOVO CÓDIGO PARA AUTOMATIZAR A REMOÇÃO DOS ARQUIVOS DE CACHE ---
-    print("\nAutomatizando a limpeza do cache...")
+
+def decode_base64_image(image_base64):
     try:
-        for arquivo in os.listdir(banco_de_dados):
-            if arquivo.endswith(".pkl"):
-                caminho_arquivo = os.path.join(banco_de_dados, arquivo)
-                os.remove(caminho_arquivo)
-                print(f"Arquivo de cache removido: {arquivo}")
-        print("Cache de reconhecimento facial limpo com sucesso!")
+        img_bytes = base64.b64decode(image_base64)
+        np_arr = np.frombuffer(img_bytes, np.uint8)
+        return cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
     except Exception as e:
-        print(f"Erro ao limpar o cache: {e}")
-    # --- FIM DO NOVO CÓDIGO ---
-    
-else:
-    print("\nOpção inválida. Por favor, escolha 1 ou 2.")
+        return None
+
+
+def reconhecer_rosto(image_base64):
+    model = carregar_modelo()
+    img = decode_base64_image(image_base64)
+
+    if img is None:
+        return {"erro": "Falha ao decodificar imagem"}
+
+    try:
+        rostos = DeepFace.extract_faces(
+            img_path=img,
+            detector_backend=DETECTOR,
+            enforce_detection=False
+        )
+    except Exception as e:
+        return {"erro": f"Falha ao detectar rosto: {str(e)}"}
+
+    if not rostos:
+        return {"resultado": "Nenhum rosto detectado"}
+
+    resultados = []
+    for rosto in rostos:
+        if rosto["confidence"] < LIMITE_CONFIANCA:
+            continue
+
+        x, y, w, h = rosto["facial_area"].values()
+        if w < 40 or h < 40:
+            continue
+
+        try:
+            candidatos = DeepFace.find(
+                img_path=img,
+                db_path=DIRETORIO_IMAGENS,
+                model_name=MODELO,
+                detector_backend=DETECTOR,
+                enforce_detection=False
+            )
+        except Exception:
+            candidatos = []
+
+        nome_final = "Desconhecido"
+        distancia_final = None
+
+        if candidatos:
+            pessoas = {}
+            for _, row in candidatos[0].iterrows():
+                pessoa = os.path.basename(os.path.dirname(row["identity"]))
+                distancia = row["distance"]
+                if pessoa not in pessoas or distancia < pessoas[pessoa]:
+                    pessoas[pessoa] = distancia
+
+            if pessoas:
+                pessoa_mais_proxima = min(pessoas, key=pessoas.get)
+                distancia_final = pessoas[pessoa_mais_proxima]
+                if distancia_final <= LIMITE_CONFIANCA:
+                    nome_final = pessoa_mais_proxima
+
+        resultados.append({
+            "nome": nome_final,
+            "distancia": float(distancia_final) if distancia_final else None,
+            "confiança": float(rosto["confidence"]),
+            "area": rosto["facial_area"]
+        })
+
+    if not resultados:
+        return {"resultado": "Nenhum rosto válido"}
+
+    return {"resultado": resultados}
