@@ -3,7 +3,6 @@ import cv2
 import base64
 import numpy as np
 from deepface import DeepFace
-from flask import jsonify
 
 # Configurações principais
 MODELO = "Facenet"
@@ -28,7 +27,7 @@ def decode_base64_image(image_base64):
         img_bytes = base64.b64decode(image_base64)
         np_arr = np.frombuffer(img_bytes, np.uint8)
         return cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-    except Exception as e:
+    except Exception:
         return None
 
 
@@ -37,7 +36,7 @@ def reconhecer_rosto(image_base64):
     img = decode_base64_image(image_base64)
 
     if img is None:
-        return {"erro": "Falha ao decodificar imagem"}
+        return {"status": "erro", "mensagem": "Falha ao decodificar imagem"}
 
     try:
         rostos = DeepFace.extract_faces(
@@ -46,17 +45,19 @@ def reconhecer_rosto(image_base64):
             enforce_detection=False
         )
     except Exception as e:
-        return {"erro": f"Falha ao detectar rosto: {str(e)}"}
+        return {"status": "erro", "mensagem": f"Falha ao detectar rosto: {str(e)}"}
 
     if not rostos:
-        return {"resultado": "Nenhum rosto detectado"}
+        return {"status": "sucesso", "resultado": "Nenhum rosto detectado"}
 
     resultados = []
     for rosto in rostos:
         if rosto["confidence"] < LIMITE_CONFIANCA:
             continue
 
-        x, y, w, h = rosto["facial_area"].values()
+        fa = rosto["facial_area"]  # Corrigido
+        x, y, w, h = fa["x"], fa["y"], fa["w"], fa["h"]
+
         if w < 40 or h < 40:
             continue
 
@@ -91,11 +92,11 @@ def reconhecer_rosto(image_base64):
         resultados.append({
             "nome": nome_final,
             "distancia": float(distancia_final) if distancia_final else None,
-            "confiança": float(rosto["confidence"]),
-            "area": rosto["facial_area"]
+            "confianca": float(rosto["confidence"]),
+            "area": fa
         })
 
     if not resultados:
-        return {"resultado": "Nenhum rosto válido"}
+        return {"status": "sucesso", "resultado": "Nenhum rosto válido"}
 
-    return {"resultado": resultados}
+    return {"status": "sucesso", "resultado": resultados}
