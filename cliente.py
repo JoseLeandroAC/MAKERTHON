@@ -11,14 +11,14 @@ url_reconhecer = "http://127.0.0.1:5000/reconhecer"
 # Iniciar a câmera
 webcam = cv2.VideoCapture(0)
 
-# Variáveis compartilhadas para comunicação entre threads
+# Variáveis compartilhadas
 last_face_info = None
 last_text_info = 'Pressione ESPACO para reconhecer'
 cor = (255, 255, 0)
 processando = False
 frame_para_processar = None
 
-# Função para registrar a presença em um arquivo
+# Função para registrar a presença
 def registrar_presenca(nome_pessoa, status):
     agora = datetime.now()
     data_e_hora = agora.strftime("%d-%m-%Y %H:%M:%S")
@@ -26,7 +26,7 @@ def registrar_presenca(nome_pessoa, status):
         arquivo.write(f"Nome: {nome_pessoa} | Status: {status} | Horario: {data_e_hora}\n")
     print(f"Presença de {nome_pessoa} registrada no arquivo.")
 
-# Função que será executada em uma thread separada
+# Função de processamento em thread
 def processar_frame_ia():
     global last_face_info, last_text_info, cor, processando, frame_para_processar
     
@@ -46,17 +46,18 @@ def processar_frame_ia():
                 
                 if resposta.status_code == 200:
                     resultado = resposta.json()
-                    if resultado['status'] == 'sucesso':
-                        nome = resultado['identidade']
-                        distancia = resultado.get('distancia')
-                        facial_area = resultado.get('facial_area')
-                        
-                        if facial_area:
-                            last_face_info = facial_area
-                        else:
-                            last_face_info = None
-                        
-                        if nome != 'Nenhum rosto detectado' and nome != 'Desconhecido' and distancia is not None:
+                    status = resultado.get("status", "erro")
+                    nome = resultado.get("identidade", "Desconhecido")
+                    distancia = resultado.get("distancia")
+                    facial_area = resultado.get("facial_area")
+
+                    if facial_area:
+                        last_face_info = facial_area
+                    else:
+                        last_face_info = None
+                    
+                    if status == "sucesso":
+                        if nome != "Nenhum rosto detectado" and nome != "Desconhecido" and distancia is not None:
                             porcentagem = (1 - distancia) * 100
                             last_text_info = f"{nome} ({porcentagem:.1f}%)"
                             cor = (0, 255, 0)
@@ -85,6 +86,7 @@ def processar_frame_ia():
             
         time.sleep(0.1)
 
+# Thread de processamento
 thread_ia = threading.Thread(target=processar_frame_ia, daemon=True)
 thread_ia.start()
 
