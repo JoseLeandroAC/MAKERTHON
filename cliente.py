@@ -42,22 +42,29 @@ def processar_frame_ia():
             dados = {'imagem': imagem_base64}
 
             try:
-                resposta = requests.post(url_reconhecer, json=dados)
+                resposta = requests.post(url_reconhecer, json=dados, timeout=10)
                 
                 if resposta.status_code == 200:
                     resultado = resposta.json()
-                    status = resultado.get("status", "erro")
-                    nome = resultado.get("identidade", "Desconhecido")
-                    distancia = resultado.get("distancia")
-                    facial_area = resultado.get("facial_area")
-
-                    if facial_area:
-                        last_face_info = facial_area
-                    else:
-                        last_face_info = None
                     
-                    if status == "sucesso":
-                        if nome != "Nenhum rosto detectado" and nome != "Desconhecido" and distancia is not None:
+                    # A API agora sempre deve retornar uma lista de rostos
+                    rostos = resultado.get('resultado', [])
+                    
+                    if not rostos:
+                        last_text_info = 'Nenhum rosto detectado'
+                        last_face_info = None
+                        cor = (0, 0, 255)
+                        registrar_presenca("Desconhecido", "Nao Reconhecido")
+                    else:
+                        # Pega o primeiro rosto detectado
+                        rosto = rostos[0]
+                        nome = rosto.get('nome', 'Desconhecido')
+                        distancia = rosto.get('distancia')
+                        facial_area = rosto.get('area')
+
+                        last_face_info = facial_area if facial_area else None
+                        
+                        if nome != 'Desconhecido' and distancia is not None:
                             porcentagem = (1 - distancia) * 100
                             last_text_info = f"{nome} ({porcentagem:.1f}%)"
                             cor = (0, 255, 0)
@@ -69,16 +76,12 @@ def processar_frame_ia():
                                 last_text_info += f" ({porcentagem:.1f}%)"
                             cor = (0, 0, 255)
                             registrar_presenca("Desconhecido", "Nao Reconhecido")
-                    else:
-                        last_text_info = 'Erro na API'
-                        cor = (0, 0, 255)
-                        last_face_info = None
                 else:
                     last_text_info = f'Erro HTTP: {resposta.status_code}'
                     cor = (0, 0, 255)
                     last_face_info = None
-            except requests.exceptions.ConnectionError:
-                last_text_info = 'Erro de conexao com a API'
+            except requests.exceptions.RequestException as e:
+                last_text_info = f'Erro de conexao com a API: {e}'
                 cor = (0, 0, 255)
                 last_face_info = None
             
@@ -98,7 +101,7 @@ while True:
         break
     
     if last_face_info:
-        x, y, w, h = last_face_info['x'], last_face_info['y'], last_face_info['w'], last_face_info['h']
+        x, y, w, h = last_face_info.get('x',0), last_face_info.get('y',0), last_face_info.get('w',0), last_face_info.get('h',0)
         cv2.rectangle(frame, (x, y), (x + w, y + h), cor, 2)
         cv2.putText(frame, last_text_info, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, cor, 2)
     else:
@@ -119,4 +122,3 @@ while True:
 
 webcam.release()
 cv2.destroyAllWindows()
- 
