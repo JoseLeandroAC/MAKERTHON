@@ -3,7 +3,6 @@ from ia_api import reconhecer_rosto
 
 app = Flask(__name__)
 
-
 @app.route("/reconhecer", methods=["POST"])
 def reconhecer():
     data = request.json
@@ -12,13 +11,7 @@ def reconhecer():
 
     imagem = data["imagem"]
     resultado = reconhecer_rosto(imagem)
-
-    # Garante que sempre tenha "status"
-    if "status" not in resultado:
-        return jsonify({"status": "erro", "mensagem": "Resposta inválida da IA"}), 500
-
     return jsonify(resultado)
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, threaded=True)
