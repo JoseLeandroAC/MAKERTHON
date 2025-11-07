@@ -64,7 +64,7 @@ if modo == '1':
                         if resultados and not resultados[0].empty:
                             distancia = resultados[0]['distance'][0]
                             
-                            limite_distancia_confianca = 0.65
+                            limite_distancia_confianca = 0.45
     
                             if distancia < limite_distancia_confianca:
                                 caminho_identidade = resultados[0]['identity'][0]
